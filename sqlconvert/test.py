@@ -5,12 +5,11 @@ import os.path
 import sqlconvert
 
 
-tests = [
-    ('mssql', 'mssql.sql', 'mssql.output.sql'),
-]
+tests = ['mssql', 'interbase5']
 
-
-for fmt, infile, outfile in tests:
+for fmt in tests:
+    infile = fmt + '.sql'
+    outfile = fmt + '.output.sql'
     print('Testing {}... '.format(fmt), end='')
     with open(os.path.join('tests', infile), 'r') as fh:
         got = sqlconvert.convert(fh.read(), fmt)

@@ -11,8 +11,13 @@ Example usage:
 
 import argparse
 import re
-import sys
 
+
+# Lists of regular expressions and replacement strings for each sql syntax.
+# For each row, the first value is the regex to match and the second in the
+# replacement (see `re.sub` for details).  In addition, if the reges contains
+# groups named 'match' and 'replace', then the values in those groups are
+# also matched and replaced immediately.
 regexes = {
     'mssql': [
         [r'\bGO\b', ';'],
@@ -48,14 +53,41 @@ regexes = {
         [r'SET ANSI_NULLS [^;]*?;', ''],
         [r'SET QUOTED_IDENTIFIER [^;]*?;', ''],
         [r'SET ANSI_PADDING [^;]*?;', ''],
+    ],
+
+    'interbase5': [
+        [r'CREATE\sDATABASE\s+"[^"]*\\(\w+)[^"]*?"([^;]*);',
+            r'CREATE DATABASE `\1` \2;\nUSE `\1`;'],
+        [r'\bPAGE_SIZE\s\d+', r'/* \g<0> */'],
+        [r'DECLARE[^;]*?;', r'/* \g<0> */'],
+        [r'SET AUTODDL [^;]*?;', r'/* \g<0> */'],
+        [r'\bSET TERM\b', r'DELIMITER'],
+        [r'CREATE GENERATOR [^;]*?;\s*', r'/* \g<0> */'],
+        [r'CREATE EXCEPTION [^;]*?;\s*', r'/* \g<0> */'],
+        [r'''["']''', '`'],
+        [r'ALTER TABLE `?\w+`?\s+ADD\s+CHECK[^;]*;', r'/* \g<0> */'],
+        [r'\bCREATE\sDOMAIN\s(?P<match>\w+)\sAS\s(?P<replace>[^;]*);\s+', r'/* \g<0> */'],
+        [r'BLOB (?P<a>(SUB_TYPE \w+\s*)?(SEGMENT SIZE \d+\s*)?(CHARACTER SET \w+)?)\s*(?P<b>[^,]*),',
+            r"BLOB \g<b> COMMENT '\g<a>',"],
     ]
 }
 
 
-def convert(sql, format):
-    replace = regexes[format.lower()]
-    for regex, repl in replace:
-        sql = re.sub(regex, repl, sql, flags=re.I | re.M)
+def replace(regex, repl, sql):
+    # Check if the regex contains 'match' and 'replace' groups
+    r = r'.*\(\?P<%s>.*?\)'
+    extram = []
+    if re.search(r % 'match', regex) and re.search(r % 'replace', regex):
+        extram = re.findall(regex, sql)
+    sql = re.sub(regex, repl, sql, flags=re.I | re.M | re.S)
+    for match, repl in extram:
+        sql = replace(match, repl, sql)
+    return sql
+
+
+def convert(sql, fmt):
+    for regex, repl in regexes[fmt.lower()]:
+        sql = replace(regex, repl, sql)
     return sql
 
 
@@ -69,7 +101,8 @@ def main():
     args = parser.parse_args()
 
     with open(args.inputfile, 'r') as fh:
-        print(convert(fh.read(), args.format))
+        mysql = convert(fh.read(), args.format)
+        print(mysql)
 
 
 if __name__ == '__main__':
